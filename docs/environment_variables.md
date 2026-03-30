@@ -16,11 +16,20 @@ This document describes the environment variables used in the ATOM project.
 
 ---
 
-## Execution Mode
+## Model Loading
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| ~~ATOM_ENFORCE_EAGER~~ | | | Removed. Use CLI flag `--enforce-eager` instead. |
+| **ATOM_DISABLE_MMAP** | bool | false | If set to `true`, disable memory-mapped file loading for model weights. Useful in containerized environments where mmap may cause issues. |
+
+---
+
+## Plugin Mode
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| **ATOM_DISABLE_VLLM_PLUGIN** | bool | 0 (false) | If set to `1`, disable the vLLM plugin registration entirely. |
+| **ATOM_DISABLE_VLLM_PLUGIN_ATTENTION** | bool | 0 (false) | If set to `1`, disable only the vLLM attention plugin while keeping other plugins active. |
 
 ---
 
@@ -46,7 +55,9 @@ This document describes the environment variables used in the ATOM project.
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | **ATOM_ENABLE_DS_INPUT_RMSNORM_QUANT_FUSION** | bool | 1 (true) | If set to `1`, fuse RMSNorm with quantization. |
+| **ATOM_ENABLE_DS_QKNORM_FUSION** | bool | 1 (true) | If set to `1`, use the fused Q/K RMSNorm path (`fused_qk_rmsnorm`) in the DeepSeek MLA attention module when Q-LoRA is enabled and QK norm+quant fusion is not used. If set to `0`, apply separate RMSNorm for the Q and KV branches instead. |
 | **ATOM_ENABLE_DS_QKNORM_QUANT_FUSION** | bool | 1 (true) | If set to `1`, fuse QK norm with quantization in MLA attention module. |
+| **ATOM_DUAL_STREAM_MOE_TOKEN_THRESHOLD** | int | 1024 | Upper bound on MoE token count (`num_tokens` in the MoE forward) for using the dual-stream path: shared experts on a secondary CUDA stream while routed experts run on the default stream. If `num_tokens` exceeds this value, that forward uses single-stream MoE instead. Set to `0` to disable dual-stream setup entirely (no alt stream, no `maybe_dual_stream_forward` registration). |
 
 ### Qwen3-MoE style
 

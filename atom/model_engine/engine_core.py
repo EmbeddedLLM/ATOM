@@ -86,13 +86,18 @@ class EngineCore:
             if not config.enforce_eager:
                 # Start profiler before cudagraph capture only if mark-trace is enabled.
                 if self.profile_enbaled and self.mark_trace:
-                    self.runner_mgr.call_func("start_profiler", wait_out=True)
+                    self.runner_mgr.call_func(
+                        "start_profiler", "capture_graph", wait_out=True
+                    )
                 cap_cost, bs = self.runner_mgr.call_func(
                     "capture_cudagraph", wait_out=True
                 )
                 logger.info(
                     f"{self.label}: cudagraph capture{bs} cost: {cap_cost:.2f} seconds"
                 )
+                if self.profile_enbaled and self.mark_trace:
+                    # Persist a dedicated capture-graph trace immediately.
+                    self.runner_mgr.call_func("stop_profiler", wait_out=True)
             good = True
         finally:
             logger.info(
@@ -132,6 +137,13 @@ class EngineCore:
             self.runner_mgr.call_func("exit")
         except Exception:
             pass  # shared memory may already be freed
+        for proc in self.runner_mgr.procs:
+            try:
+                alive = proc.is_alive()
+            except ValueError:
+                continue  # process object already closed by CoreManager
+            if alive:
+                proc.join(timeout=5)
         self._send_engine_dead()
         logger.debug(f"{self.label}: model runner exit")
 

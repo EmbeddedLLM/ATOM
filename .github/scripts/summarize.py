@@ -1,5 +1,5 @@
 #! /usr/bin/env python3
-"""Summarize ATOM benchmark results with optional regression detection.
+"""Summarize benchmark results with optional regression detection.
 
 Usage:
     # Basic (existing behavior):
@@ -25,6 +25,11 @@ TRACKED_METRICS = [
     ("mean_ttft_ms", "Mean TTFT", False),
     ("mean_tpot_ms", "Mean TPOT", False),
 ]
+
+
+def _backend_name(data):
+    backend = str(data.get("benchmark_backend", "ATOM"))
+    return "ATOM-vLLM" if backend == "OOT" else backend
 
 
 def load_results(result_dir, recursive=False):
@@ -57,11 +62,20 @@ def load_results(result_dir, recursive=False):
             if len(parts) == 5:
                 data.setdefault("random_input_len", int(parts[1]))
                 data.setdefault("random_output_len", int(parts[2]))
+        # Detect variant tag from filename (e.g., "deepseek-r1-0528-mtp3-1024-...")
+        stem = json_path.stem
+        if "-mtp" in stem:
+            import re as _re
+
+            m = _re.search(r"-(mtp\d*)-", stem)
+            if m:
+                data["_variant"] = m.group(1)
         results.append(data)
 
     results.sort(
         key=lambda d: (
-            d.get("model_id", "").split("/")[-1],
+            _backend_name(d),
+            _display_model(d),
             int(d.get("random_input_len", 0)),
             int(d.get("random_output_len", 0)),
             int(d.get("max_concurrency", 0)),
@@ -70,10 +84,24 @@ def load_results(result_dir, recursive=False):
     return results
 
 
+def _display_model(data):
+    """Model name with variant tag for display."""
+    display_name = data.get("benchmark_model_name")
+    if display_name:
+        return str(display_name)
+
+    model = data.get("model_id", "").split("/")[-1]
+    variant = data.get("_variant", "")
+    if variant:
+        model = f"{model}-{variant}"
+    return model
+
+
 def _config_key(data):
     """Unique identifier for matching a benchmark configuration across runs."""
     return (
-        data.get("model_id", "").split("/")[-1],
+        _backend_name(data),
+        _display_model(data),
         int(data.get("random_input_len", 0)),
         int(data.get("random_output_len", 0)),
         int(data.get("max_concurrency", 0)),
@@ -114,8 +142,8 @@ def print_results_table(results):
             datetime.datetime.strptime(data.get("date", ""), "%Y%m%d-%H%M%S").strftime(
                 "%Y-%m-%d %H:%M:%S"
             ),
-            "ATOM",
-            data.get("model_id", "").split("/")[-1],
+            _backend_name(data),
+            _display_model(data),
             data.get("random_input_len", ""),
             data.get("random_output_len", ""),
             data.get("best_of", ""),
@@ -155,16 +183,18 @@ def print_regression_report(current_results, baseline_results):
     """Compare current results against baseline and print a regression summary.
 
     Returns:
-        Number of configurations with at least one regressed metric.
+        Tuple of (regression_count, regressions_list).
+        regressions_list contains dicts with config + metric details for each
+        regressed configuration.
     """
     baseline_map = {_config_key(d): d for d in baseline_results}
     if not baseline_map:
-        return 0
+        return 0, []
 
     print("\n---\n")
     print("## Regression Report\n")
     print(
-        f"Compared against previous nightly run "
+        f"Compared against previous benchmark run "
         f"({len(baseline_map)} baseline configurations).  "
     )
     print(
@@ -172,7 +202,7 @@ def print_regression_report(current_results, baseline_results):
         f"or latency increase **>{LATENCY_REGRESSION_PCT:.0f}%**\n"
     )
 
-    cols = ["Model", "ISL", "OSL", "Conc"]
+    cols = ["Backend", "Model", "ISL", "OSL", "Conc"]
     for _, display_name, _ in TRACKED_METRICS:
         cols.append(display_name)
     cols.append("Status")
@@ -181,14 +211,16 @@ def print_regression_report(current_results, baseline_results):
     print("| " + " | ".join([":-:"] * len(cols)) + " |")
 
     regression_count = 0
+    regressions = []
 
     for data in current_results:
         key = _config_key(data)
         baseline = baseline_map.get(key)
-        model, isl, osl, conc = key
-        row = [model, str(isl), str(osl), str(conc)]
+        backend, model, isl, osl, conc = key
+        row = [backend, model, str(isl), str(osl), str(conc)]
 
         has_regression = False
+        metric_deltas = {}
 
         for metric_key, _, higher_is_better in TRACKED_METRICS:
             cur_val = data.get(metric_key, 0)
@@ -196,6 +228,11 @@ def print_regression_report(current_results, baseline_results):
                 base_val = baseline.get(metric_key, 0)
                 pct = _pct_change(cur_val, base_val)
                 row.append(_format_delta(cur_val, pct, higher_is_better))
+                metric_deltas[metric_key] = {
+                    "current": cur_val,
+                    "baseline": base_val,
+                    "pct": round(pct, 2),
+                }
                 if _is_regression(pct, higher_is_better):
                     has_regression = True
             else:
@@ -204,6 +241,17 @@ def print_regression_report(current_results, baseline_results):
         if has_regression:
             row.append("⚠️ **REGRESSION**")
             regression_count += 1
+            regressions.append(
+                {
+                    "backend": backend,
+                    "model": model,
+                    "model_id": data.get("model_id", ""),
+                    "isl": isl,
+                    "osl": osl,
+                    "conc": conc,
+                    "metrics": metric_deltas,
+                }
+            )
         elif baseline is None:
             row.append("🆕 New")
         else:
@@ -219,7 +267,7 @@ def print_regression_report(current_results, baseline_results):
     else:
         print("> ✅ **No regressions detected** across all configurations")
 
-    return regression_count
+    return regression_count, regressions
 
 
 def main():
@@ -235,6 +283,11 @@ def main():
         default=None,
         help="Directory containing baseline result JSON files for comparison",
     )
+    parser.add_argument(
+        "--output-json",
+        default=None,
+        help="Path to write structured JSON report (results + regressions)",
+    )
     args = parser.parse_args()
 
     current_results = load_results(args.result_dir)
@@ -244,12 +297,44 @@ def main():
 
     print_results_table(current_results)
 
+    regression_count = 0
+    regressions = []
+
     if args.baseline_dir:
         baseline_results = load_results(args.baseline_dir, recursive=True)
         if baseline_results:
-            print_regression_report(current_results, baseline_results)
+            regression_count, regressions = print_regression_report(
+                current_results, baseline_results
+            )
         else:
             print("\n> No baseline results found for regression comparison\n")
+
+    if args.output_json:
+        report = {
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "regression_count": regression_count,
+            "regressions": regressions,
+            "all_results": [
+                {
+                    "backend": _backend_name(d),
+                    "model": _display_model(d),
+                    "isl": int(d.get("random_input_len", 0)),
+                    "osl": int(d.get("random_output_len", 0)),
+                    "conc": int(d.get("max_concurrency", 0)),
+                    "output_throughput": d.get("output_throughput", 0),
+                    "total_token_throughput": d.get("total_token_throughput", 0),
+                    "mean_ttft_ms": d.get("mean_ttft_ms", 0),
+                    "mean_tpot_ms": d.get("mean_tpot_ms", 0),
+                }
+                for d in current_results
+            ],
+        }
+        with open(args.output_json, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
+        print(f"\nJSON report written to {args.output_json}", file=sys.stderr)
+
+    if regression_count > 0:
+        sys.exit(2)
 
 
 if __name__ == "__main__":

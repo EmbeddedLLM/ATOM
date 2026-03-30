@@ -11,16 +11,22 @@ from vllm.config import VllmConfig
 from vllm.model_executor.models.interfaces import (
     SupportsPP,
     SupportsQuant,
+    SupportsMultiModal,
+    SupportsMRoPE,
+    MultiModalEmbeddings,
 )
 from vllm.model_executor.models.interfaces_base import (
     VllmModel,
     VllmModelForTextGeneration,
 )
 from vllm.sequence import IntermediateTensors
+from vllm.forward_context import (
+    get_forward_context as get_vllm_forward_context,
+    is_forward_context_available,
+)
 
 import atom  # noqa: F401
 from atom.plugin.config import generate_atom_config_for_plugin_mode
-from atom.model_loader.loader import load_model_in_plugin_mode
 
 import logging
 
@@ -33,6 +39,9 @@ _ATOM_MODEL_CLASSES: dict[str, str] = {
     "GptOssForCausalLM": "atom.models.gpt_oss:GptOssForCausalLM",
     "DeepseekV3ForCausalLM": "atom.models.deepseek_v2:DeepseekV3ForCausalLM",
     "Glm4MoeForCausalLM": "atom.models.glm4_moe:Glm4MoeForCausalLM",
+    "Qwen3NextForCausalLM": "atom.models.qwen3_next:Qwen3NextForCausalLM",
+    "Qwen3_5MoeForConditionalGeneration": "atom.models.qwen3_5:Qwen3_5MoeForConditionalGeneration_",
+    "Qwen3_5ForConditionalGeneration": "atom.models.qwen3_5:Qwen3_5ForConditionalGeneration_",
 }
 
 
@@ -112,9 +121,10 @@ class ATOMModelBase(nn.Module, VllmModel, SupportsQuant, SupportsPP):
             input_ids = None
             inputs_embeds = intermediate_tensors["hidden_states"]
 
-        # capture. This ensures attention_mla reads correct positions in graph mode.
-        # This is only for mla attention in plugin mode.
-        if "positions" in self.atom_config.compilation_config.static_forward_context:
+        # pass positions from vLLM to OOT execution path via vLLM's per-forward context
+        if is_forward_context_available():
+            get_vllm_forward_context().additional_kwargs["atom_positions"] = positions
+        elif "positions" in self.atom_config.compilation_config.static_forward_context:
             buf = self.atom_config.compilation_config.static_forward_context[
                 "positions"
             ]
@@ -137,6 +147,9 @@ class ATOMModelBase(nn.Module, VllmModel, SupportsQuant, SupportsPP):
         self,
         weights: Iterable[tuple[str, torch.Tensor]],
     ) -> set[str]:
+        # prevent circular import
+        from atom.model_loader.loader import load_model_in_plugin_mode
+
         loaded_weights_record = load_model_in_plugin_mode(
             model=self.model, config=self.atom_config, prefix="model."
         )
@@ -154,3 +167,47 @@ class ATOMForCausalLM(ATOMModelBase, VllmModelForTextGeneration): ...
 
 
 class ATOMMoEForCausalLM(ATOMModelBase, VllmModelForTextGeneration): ...
+
+
+class ATOMForConditionalGeneration(
+    ATOMModelBase, VllmModelForTextGeneration, SupportsMultiModal, SupportsMRoPE
+):
+
+    @classmethod
+    def get_placeholder_str(cls, modality: str, i: int) -> str | None:
+        """
+        Get the placeholder text for the `i`th `modality` item in the prompt.
+        """
+        raise NotImplementedError
+
+    def embed_multimodal(self, **kwargs: object) -> MultiModalEmbeddings:
+        return self.model.embed_multimodal(**kwargs)
+
+    def configure_mm_token_handling(self, vocab_size, mm_token_ids):
+        return self.model.configure_mm_token_handling(vocab_size, mm_token_ids)
+
+    def get_language_model(self):
+        return self.model.get_language_model()
+
+    def get_num_mm_encoder_tokens(self, num_image_tokens):
+        return self.model.get_num_mm_encoder_tokens(num_image_tokens)
+
+    def get_num_mm_connector_tokens(self, num_vision_tokens):
+        return self.model.get_num_mm_connector_tokens(num_vision_tokens)
+
+    def embed_input_ids(
+        self, input_ids, multimodal_embeddings=None, *, is_multimodal=None
+    ):
+        return self.model.embed_input_ids(
+            input_ids,
+            multimodal_embeddings=multimodal_embeddings,
+            is_multimodal=is_multimodal,
+        )
+
+    def _embed_text_input_ids(self, input_ids, embed_input_ids, *, is_multimodal):
+        return self.model._embed_text_input_ids(
+            input_ids, embed_input_ids, is_multimodal=is_multimodal
+        )
+
+    def get_mrope_input_positions(self, input_tokens, mm_features):
+        return self.model.get_mrope_input_positions(input_tokens, mm_features)
