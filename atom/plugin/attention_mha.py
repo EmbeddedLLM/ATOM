@@ -750,17 +750,6 @@ class PagedAttentionImplPluginModeMethods:
 
         return output
 
-    def do_kv_cache_update(
-        self,
-        kv_c_normed: torch.Tensor,
-        k_pe: torch.Tensor,
-        kv_cache: torch.Tensor,
-        slot_mapping: torch.Tensor,
-        kv_cache_dtype: str,
-        k_scale: torch.Tensor,
-    ) -> None:
-        return
-
 
 def PagedAttentionImplDecoratorForPluginMode(cls):
     method_names = [
@@ -771,7 +760,6 @@ def PagedAttentionImplDecoratorForPluginMode(cls):
         "extend_for_sliding_window",
         "extend_forward",
         "forward_impl_plugin_mode",
-        "do_kv_cache_update",
     ]
 
     logger.info(
