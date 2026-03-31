@@ -13,7 +13,7 @@ from vllm_omni.diffusion.attention.backends.abstract import (
 logger = init_logger(__name__)
 
 
-class ATOMDiffusionFlashAttentionBackend(AttentionBackend):
+class AiterFlashAttentionBackend(AttentionBackend):
     accept_output_buffer: bool = True
 
     @classmethod
@@ -26,14 +26,14 @@ class ATOMDiffusionFlashAttentionBackend(AttentionBackend):
 
     @staticmethod
     def get_name() -> str:
-        return "ATOM_DIFFUSION_FLASH_ATTN"
+        return "AITER_DIFFUSION_FLASH_ATTN"
 
     @staticmethod
-    def get_impl_cls() -> type["ATOMDiffusionFlashAttentionImpl"]:
-        return ATOMDiffusionFlashAttentionImpl
+    def get_impl_cls() -> type["AiterDiffusionFlashAttentionImpl"]:
+        return AiterDiffusionFlashAttentionImpl
 
 
-class ATOMDiffusionFlashAttentionImpl(AttentionImpl):
+class AiterDiffusionFlashAttentionImpl(AttentionImpl):
     def __init__(
         self,
         num_heads: int,
@@ -60,11 +60,11 @@ class ATOMDiffusionFlashAttentionImpl(AttentionImpl):
         value: torch.Tensor,
         attention_mask: torch.Tensor,
     ) -> torch.Tensor:
-        from atom.plugin.vllm_omni.diffusion_attention_backend.fa_utils import (
+        from aiter import flash_attn_varlen_func 
+        from vllm_omni.diffusion.attention.backends.utils.fa import (
             _pad_input,
             _unpad_input,
             _upad_input,
-            flash_attn_varlen_func,
         )
 
         assert attention_mask.ndim == 2, "attention_mask must be 2D, (batch_size, seq_len)"
@@ -96,18 +96,7 @@ class ATOMDiffusionFlashAttentionImpl(AttentionImpl):
         value: torch.Tensor,
         attn_metadata: AttentionMetadata = None,
     ) -> torch.Tensor:
-        """CUDA/ROCm flash attention implementation."""
-        from atom.plugin.vllm_omni.diffusion_attention_backend.fa_utils import (
-            HAS_FLASH_ATTN,
-            flash_attn_func,
-        )
-
-        if not HAS_FLASH_ATTN:
-            raise ImportError(
-                "FlashAttentionBackend requires Flash Attention. "
-                "Please install one of: fa3-fwd, flash-attention, or flash-attn. "
-                "Otherwise, use SDPA backend by setting DIFFUSION_ATTENTION_BACKEND=TORCH_SDPA"
-            )
+        from aiter import flash_attn_func
 
         attention_mask = attn_metadata.attn_mask if attn_metadata is not None else None
 
