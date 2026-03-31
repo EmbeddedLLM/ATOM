@@ -1,7 +1,6 @@
 from typing import Optional
 import logging
 
-import torch
 from atom.plugin.prepare import _set_framework_backbone
 from atom.utils import envs
 from atom.plugin.vllm.mla_patch import patch_vllm_mla_attention
