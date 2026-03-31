@@ -722,7 +722,8 @@ class PagedAttentionImplPluginModeMethods:
                 )
             else:
                 # Qwen only uses gluon pa decode when bs=64
-                if num_decodes == _QWEN_GLUON_PA_DECODE_BS:
+                if False:
+                # if num_decodes == _QWEN_GLUON_PA_DECODE_BS:
                     self.paged_attention_triton_plugin_mode(
                         q=query[:num_decode_tokens],
                         k_cache=new_key_cache,
@@ -749,6 +750,17 @@ class PagedAttentionImplPluginModeMethods:
 
         return output
 
+    def do_kv_cache_update(
+        self,
+        kv_c_normed: torch.Tensor,
+        k_pe: torch.Tensor,
+        kv_cache: torch.Tensor,
+        slot_mapping: torch.Tensor,
+        kv_cache_dtype: str,
+        k_scale: torch.Tensor,
+    ) -> None:
+        return
+
 
 def PagedAttentionImplDecoratorForPluginMode(cls):
     method_names = [
@@ -759,6 +771,7 @@ def PagedAttentionImplDecoratorForPluginMode(cls):
         "extend_for_sliding_window",
         "extend_forward",
         "forward_impl_plugin_mode",
+        "do_kv_cache_update",
     ]
 
     logger.info(

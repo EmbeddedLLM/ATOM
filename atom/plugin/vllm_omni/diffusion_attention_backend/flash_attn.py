@@ -60,7 +60,7 @@ class ATOMDiffusionFlashAttentionImpl(AttentionImpl):
         value: torch.Tensor,
         attention_mask: torch.Tensor,
     ) -> torch.Tensor:
-        from atom.model_ops.attentions.diffusion_fa_utils import (
+        from atom.plugin.vllm_omni.diffusion_attention_backend.fa_utils import (
             _pad_input,
             _unpad_input,
             _upad_input,
@@ -97,7 +97,7 @@ class ATOMDiffusionFlashAttentionImpl(AttentionImpl):
         attn_metadata: AttentionMetadata = None,
     ) -> torch.Tensor:
         """CUDA/ROCm flash attention implementation."""
-        from atom.model_ops.attentions.diffusion_fa_utils import (
+        from atom.plugin.vllm_omni.diffusion_attention_backend.fa_utils import (
             HAS_FLASH_ATTN,
             flash_attn_func,
         )
