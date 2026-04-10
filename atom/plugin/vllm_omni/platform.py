@@ -57,7 +57,7 @@ if not disable_vllm_plugin:
 
             logger.info("Use atom diffusion attention backend")
             return (
-                "atom.plugin.vllm_omni.diffusion_attention_backend.flash_attn"
+                "atom.plugin.vllm_omni.diffusion.attention_backend.flash_attn"
                 ".AiterFlashAttentionBackend"
             )
 
